@@ -1,189 +1,218 @@
 # Hermes Kanban Labs
 
-**Experimental power-user Kanban workers for [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent).**
+**A fast-moving experimental Kanban integration branch for [NousResearch/hermes-agent](https://github.com/NousResearch/hermes-agent) power users.**
 
-Hermes Kanban Labs exists to make advanced Kanban worker patterns usable **now**, while upstream APIs are still being designed and merged. It is intentionally a thin experimental layer, not a competing agent framework and not a second Kanban implementation.
+Labs stays close to Hermes `main`, composes promising upstream PRs/issues, and makes advanced Kanban worker patterns usable **now** without creating a competing board, scheduler, or state system.
 
-> **One Hermes board remains authoritative. Labs changes how a claimed worker is launched.**
+> **Hermes owns the board. Labs adds policy and experimental execution backends.**
+
+## v0.2: the three-plane model
+
+```text
+STATE — upstream Hermes SQLite (only authority)
+  tasks / links / runs / comments / review / retry
+
+POLICY — Labs TOML
+  board -> workflow -> nested path -> card
+  prompts / model defaults / frontier budgets
+
+EXECUTION
+  local profile | SSH+Docker worker | one sharded-model superworker
+```
+
+A remote worker is now intended to be **as expressive as a local Hermes worker**: native card model/provider/reasoning/skills flow across the SSH boundary, and Git workspaces preserve a real worktree rather than flattening `.git` away.
 
 ## What it unlocks
 
-A normal Hermes host can keep using its native Kanban board, dashboard, dependencies, claims, run IDs, retry/failure breaker, review lane, concurrency controls, and worker logs while some assignees execute somewhere else.
-
 ```text
                          MAIN HERMES
-                  canonical Kanban board
+                    canonical Kanban
                            │
              claim / run / retry / review
                            │
-              experimental spawn seam
-                  ┌────────┴────────┐
-                  │                 │
-                  ▼                 ▼
-          standalone worker     cluster worker
-          one remote box        one logical worker
-                  │                 │
-          Dockerized Hermes     Dockerized Hermes
-                  │                 │
-             whole model       one inference endpoint
-                                    │
-                             sharded model backend
-                         Mac1 ─ Mac2 ─ ... ─ Mac20
+                 Labs spawn adapter
+            ┌──────────────┴──────────────┐
+            │                             │
+      remote standalone              cluster worker
+      logical worker #1             logical worker #2
+            │                             │
+      SSH -> Docker Hermes           SSH -> Docker Hermes
+            │                             │
+       whole model/API               ONE inference endpoint
+                                          │
+                                  distributed model backend
+                                  Mac1 ... Mac20 / GPUs / etc.
 ```
 
-To Kanban, `monster-shard` is **one worker**. The twenty model-stage machines beneath its inference endpoint are not twenty Kanban workers.
+To Kanban, a 20-Mac model cluster is **one worker**. The model-stage machines are inference infrastructure, not twenty board workers.
+
+## What changed in v0.2
+
+### Git-native remote execution
+
+Set:
+
+```toml
+workspace = "git"
+```
+
+Labs now:
+
+1. validates the resolved Hermes workspace is a Git worktree;
+2. bundles the exact local `HEAD` without sending origin credentials;
+3. creates/reuses a remote bare cache and a run-specific worktree;
+4. overlays dirty/untracked files while preserving remote `.git` state;
+5. runs Dockerized Hermes in that worktree;
+6. syncs files back;
+7. fetches the remote commit into:
+
+```text
+refs/hermes-kanban-labs/results/<task-run>
+```
+
+It never silently resets or moves your controller branch. Inspect/diff/cherry-pick/merge the result ref yourself or through your agent workflow.
+
+This remote transport intentionally complements upstream PR **#91981** instead of rebuilding its task-scoped Docker worktree authority.
+
+### Adaptive workflow policy
+
+TOML is now a policy layer with deterministic precedence:
+
+```text
+worker defaults
+ -> global
+ -> board
+ -> workflow
+ -> matching nested board paths
+ -> matching nested workflow paths
+ -> native Hermes card overrides
+```
+
+Example:
+
+```toml
+[boards.default.workflows.release]
+prompt = "Produce reviewable release slices."
+
+[boards.default.workflows.release.paths."research"]
+model = "fast-model"
+
+[boards.default.workflows.release.paths."research.deep"]
+model = "strong-model"
+reasoning_effort = "high"
+
+[boards.default.workflows.release.paths."implementation"]
+model = "coding-model"
+```
+
+A card at `research.deep.compare` inherits `research` then `research.deep`. Native Hermes `model_override`, `provider_override`, `reasoning_effort`, and card skills win last.
+
+### Anti-sprawl frontier budgets
+
+```toml
+[policy]
+max_open_cards = 30
+max_ready_cards = 8
+max_children_per_card = 5
+max_depth = 5
+```
+
+Inspect the live canonical board:
+
+```bash
+hkl --config ~/.config/hermes-kanban-labs/workers.toml \
+  frontier --board default
+```
+
+When open/ready budgets are saturated, the policy says **finish, merge, archive, or explicitly block existing work before expanding the graph**. Deleting board history is never a pressure-relief strategy.
+
+v0.2 intentionally does not patch upstream `kanban_create` yet; there is no clean pre-create policy seam on current main, and widening the Labs patch into canonical mutation ownership would violate the project's own boundary. See `docs/ANTI_SPRAWL.md`.
+
+### Vertical workflow/path view
+
+```bash
+hkl tree --board default
+hkl tree --board default --json
+```
+
+This projects upstream `workflow_template_id` + nested `current_step_key` vertically while keeping actual `task_links` dependencies visible separately.
+
+Labs does **not** create another board API. Upstream's Kanban/dashboard API remains canonical; `--json` is a Labs projection for scripts and future plugin UI work.
 
 ## Why this repo exists
 
-Upstream already has the right primitives and active design work:
+Relevant upstream destinations include:
 
 - [#29244 — Distributed Kanban workers with central board visibility](https://github.com/NousResearch/hermes-agent/issues/29244)
 - [#70547 — production path for the existing `spawn_fn` seam](https://github.com/NousResearch/hermes-agent/issues/70547)
 - [#94363 — Hermes Mesh RFC / edge-compute fabric](https://github.com/NousResearch/hermes-agent/issues/94363)
+- [#91981 — task-scoped Docker worktrees](https://github.com/NousResearch/hermes-agent/pull/91981)
 
-Labs does not wait for those designs to settle before power users can experiment. It stays deliberately close to `main`, proves a narrow integration, and should **delete local compatibility patches as upstream absorbs them**.
+Labs is a proving ground for compositions of that work. As equivalent features land upstream, the desired outcome is to **delete Labs compatibility code**.
 
-## Non-negotiable architecture rule
+## Non-negotiable boundary
 
 Labs does **not** own:
 
-- a second task database;
-- a second task scheduler;
-- task dependencies;
-- retries or failure counting;
-- Kanban completion authority;
-- review state;
-- a distributed replacement for `kanban.db`.
+- another task database;
+- another scheduler;
+- dependency truth;
+- retry/failure accounting;
+- completion/review authority;
+- a replacement for `kanban.db`;
+- model-shard placement inside a distributed inference engine.
 
-Those remain upstream Hermes responsibilities.
+## Install
 
-Labs owns only the execution adapter between an upstream claimed run and an experimental worker backend.
-
-## Current alpha
-
-Verified against upstream commit:
-
-```text
-3f36c87e1ebdfbf7d14a88229dc9be222c12ea89
-```
-
-Current implementation:
-
-- mixed local + experimental lanes on the same normal Hermes board;
-- remote SSH + Docker Hermes workers;
-- official `nousresearch/hermes-agent` image;
-- optional `rsync` task workspace transfer;
-- local bridge PID returned to upstream, preserving upstream crash detection;
-- claim heartbeats use the upstream `claim_lock`;
-- completion is fenced by upstream `expected_run_id`;
-- lost ownership cancels the remote worker and refuses stale completion;
-- non-zero remote exit is left to upstream crash/retry/failure-breaker logic;
-- a `shard_cluster` worker points one Hermes agent at one distributed inference gateway;
-- no custom persistent control service is required on remote machines.
-
-## Installation — power-user source checkout
-
-Start from a current Hermes source checkout/fork. Labs is intentionally optimized for people already tracking Hermes `main`.
+From a Hermes source checkout/fork:
 
 ```bash
-git clone https://github.com/NousResearch/hermes-agent.git
-cd hermes-agent
-
-# Clone Hermes Kanban Labs next to it after publishing this repository.
-# git clone https://github.com/<owner>/hermes-kanban-labs.git ../hermes-kanban-labs
-
-python -m pip install --no-deps -e ../hermes-kanban-labs
-python ../hermes-kanban-labs/scripts/apply_upstream_patch.py .
+python -m pip install --no-deps -e /path/to/hermes-kanban-labs
+python /path/to/hermes-kanban-labs/scripts/apply_upstream_patch.py /path/to/hermes-agent
 ```
 
-Review the tiny change to `hermes_cli/kanban_db.py`, then run your normal Hermes test/install process. The patch only changes profile-gating behavior when a caller explicitly supplies `spawn_fn`; stock `spawn_fn=None` behavior is preserved.
+The compatibility patch only makes the existing `spawn_fn` seam reachable for non-profile assignees when a custom spawner is explicitly supplied. Normal `spawn_fn=None` behavior remains upstream behavior.
 
-## Configure workers
+Configure:
 
 ```bash
 mkdir -p ~/.config/hermes-kanban-labs
-cp ../hermes-kanban-labs/examples/workers.toml \
-  ~/.config/hermes-kanban-labs/workers.toml
+cp examples/workers.toml ~/.config/hermes-kanban-labs/workers.toml
 $EDITOR ~/.config/hermes-kanban-labs/workers.toml
 ```
 
-A standalone worker:
-
-```toml
-[workers.mac-mini-01]
-backend = "ssh-docker"
-ssh = "you@mac-mini-01.local"
-provider = "openai-api"
-model = "your-local-model"
-base_url = "http://host.docker.internal:8080/v1"
-workspace = "rsync"
-```
-
-A sharded superworker:
-
-```toml
-[workers.monster-shard]
-kind = "shard_cluster"
-cluster_nodes = 20
-backend = "ssh-docker"
-ssh = "you@cluster-coordinator.local"
-provider = "openai-api"
-model = "huge-distributed-model"
-base_url = "http://10.0.0.50:8000/v1"
-workspace = "rsync"
-```
-
-Labs does not care whether that endpoint is backed by Shard, MLX distributed inference, another engine, or one enormous server. For the MVP, the contract is simply an inference endpoint that the Dockerized Hermes worker can use.
-
-## Worker setup
-
-There is deliberately no Hermes installation ceremony on every worker machine. A worker host needs SSH and Docker. Model serving is operator-owned.
+Verify workers:
 
 ```bash
 hkl --config ~/.config/hermes-kanban-labs/workers.toml doctor --pull
 ```
 
-`--pull` verifies Docker and pulls the configured Hermes image.
-
-Credentials are not copied from the controller. If a worker needs provider secrets, place an env file on that worker yourself and set an **absolute** `remote_env_file` path in its config.
-
-## Run the experimental dispatcher
+Run the experimental dispatcher:
 
 ```bash
 hkl --config ~/.config/hermes-kanban-labs/workers.toml dispatch
 ```
 
-Assign cards to worker names using ordinary Hermes Kanban operations:
+Assign normal Hermes cards to configured Labs worker names. Ordinary profile assignees still fall through to upstream `_default_spawn`.
+
+## Failure behavior
 
 ```text
-assignee = mac-mini-01
-assignee = monster-shard
+remote exits 0
+  -> exact-run fenced completion
+
+remote exits nonzero
+  -> local bridge exits nonzero
+  -> upstream crash/retry/breaker owns recovery
+
+claim lost
+  -> remote execution canceled
+  -> stale bridge forbidden from completing successor run
+
+Git result captured
+  -> fetched into result ref
+  -> controller branch is not silently modified
 ```
-
-Ordinary Hermes profile assignees still route through upstream `_default_spawn`. Experimental assignees route through the Labs bridge.
-
-The stock gateway dispatcher can remain active. With `spawn_fn=None` it continues to skip non-profile lanes, while the Labs dispatcher can claim those lanes using the custom spawner. Hermes' existing dispatch lock / atomic claim behavior remains the authority.
-
-## How failure behaves
-
-Labs intentionally avoids clever fallback:
-
-```text
-remote worker exits 0
-    -> complete exact current run
-
-remote worker exits nonzero
-    -> bridge exits nonzero
-    -> card remains under upstream lifecycle
-    -> upstream crash detection / retry / breaker handles it
-
-claim heartbeat fails
-    -> cancel remote worker
-    -> refuse completion
-    -> stale bridge cannot mutate successor run
-```
-
-That behavior is tested.
 
 ## Smoke test
 
@@ -191,29 +220,22 @@ That behavior is tested.
 ./scripts/smoke.sh
 ```
 
-The release smoke includes unit tests, failure injection, upstream-patch drift checks, and a real subprocess path using disposable `ssh` and `docker` command shims:
+The suite covers policy precedence, nested paths, card override fidelity, Git bundle transport, vertical tree projection, frontier saturation, claim loss, remote exit failure, exact-run completion, no-second-authority checks, patch idempotence, and the subprocess bridge/SSH/Docker command path.
 
-```text
-bridge -> ssh subprocess -> docker command shim -> worker output -> exact-run completion
-```
+## Staying near `main`
 
-This proves the process/protocol path without pretending this build environment had a real remote Docker host. Before relying on a machine, run `hkl ... doctor --pull` and one disposable card against your actual hardware.
+`scripts/sync_upstream.sh` refuses dirty trees, rebases onto NousResearch `main`, reapplies the tiny compatibility seam, and stops for review. It never force-pushes automatically. CI also checks the seam for upstream drift.
 
-## Staying close to upstream
-
-For a Hermes fork, `scripts/sync_upstream.sh` performs a conservative local sync:
-
-1. require a clean working tree;
-2. fetch `NousResearch/hermes-agent main`;
-3. rebase onto upstream main;
-4. re-apply the tiny Labs compatibility seam;
-5. stop for human diff/test review;
-6. never force-push automatically.
-
-A scheduled GitHub Actions workflow also checks current upstream `main` for seam drift. If upstream lands #70547-equivalent functionality, the desired response is to remove our patch, not fight upstream.
+Current v0.2 development pin is recorded in `UPSTREAM_PIN`; do not interpret that as a promise that fast-moving upstream has stopped changing.
 
 ## Status
 
-**Experimental alpha / power users.** The code path is smoke-tested and fail-closed, but the packaged release has not been live-smoked against your specific SSH/Docker/model hardware. That is intentionally stated rather than hidden.
+**Experimental alpha / power users.** v0.2 materially improves Git/workflow parity and board legibility, but a real external SSH/Docker machine and real sharded inference cluster are still required for `FINISHED_FOR_REAL` hardware evidence.
 
-See [SURGE_REPORT.md](SURGE_REPORT.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and [SECURITY.md](SECURITY.md).
+Read next:
+
+- `docs/ARCHITECTURE.md`
+- `docs/WORKFLOW_POLICY.md`
+- `docs/GIT_REMOTE_WORKSPACES.md`
+- `docs/ANTI_SPRAWL.md`
+- `SURGE_REPORT.md`

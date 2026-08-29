@@ -3,6 +3,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .frontier import FrontierReport, creation_guidance
+from .policy import ResolvedExecutionPolicy
+
 
 def _row_dict(row: Any) -> dict:
     if row is None:
@@ -13,13 +16,22 @@ def _row_dict(row: Any) -> dict:
         return {}
 
 
-def build_task_context(conn, task) -> str:
+def build_task_context(
+    conn,
+    task,
+    *,
+    policy: ResolvedExecutionPolicy | None = None,
+    frontier: FrontierReport | None = None,
+) -> str:
     """Build a read-only task snapshot from the canonical Hermes board.
 
-    This is intentionally not a second state store. It reads the exact board
-    the dispatcher already claimed from and serializes enough context for a
-    remote worker that cannot mount the host's kanban.db.
+    SQLite stays authoritative. The remote worker receives a serialized view
+    plus resolved execution policy; it does not get a second task database.
     """
+    if policy is None:
+        policy = ResolvedExecutionPolicy(
+            model=None, provider=None, reasoning_effort=None, skills=tuple(getattr(task, "skills", None) or ())
+        )
     task_id = str(task.id)
     parents = []
     children = []
@@ -59,17 +71,28 @@ def build_task_context(conn, task) -> str:
         "workspace_kind": getattr(task, "workspace_kind", None),
         "workspace_path": getattr(task, "workspace_path", None),
         "branch_name": getattr(task, "branch_name", None),
-        "skills": list(getattr(task, "skills", None) or []),
+        "workflow_template_id": getattr(task, "workflow_template_id", None),
+        "current_step_key": getattr(task, "current_step_key", None),
+        "skills": list(policy.skills),
         "goal_mode": bool(getattr(task, "goal_mode", False)),
+        "execution": {
+            "model": policy.model,
+            "provider": policy.provider,
+            "reasoning_effort": policy.reasoning_effort,
+            "policy_sources": list(policy.sources),
+        },
         "parents": parents,
         "children": children,
         "comments": comments,
     }
-    return (
-        "You are a Hermes Kanban subworker. The controlling Hermes instance owns the "
-        "Kanban board, task lifecycle, retries, and final completion. Work only on the "
-        "task snapshot below. Do not claim you updated the host board yourself. Return "
-        "a concise result with verification evidence.\n\n"
-        "KANBAN TASK SNAPSHOT\n"
-        + json.dumps(payload, indent=2, ensure_ascii=False, default=str)
-    )
+
+    sections = [
+        "You are a Hermes Kanban subworker. The controlling Hermes instance owns the Kanban board; that board is canonical for task lifecycle, retries, and final completion.",
+        "Work only on the task snapshot below. Preserve Git history when a Git workspace is present. Do not claim you updated the host board yourself. Return a concise result with verification evidence.",
+    ]
+    if policy.prompt_layers:
+        sections.append("POLICY INSTRUCTIONS\n" + "\n\n".join(policy.prompt_layers))
+    if frontier is not None:
+        sections.append(creation_guidance(frontier, policy))
+    sections.append("KANBAN TASK SNAPSHOT\n" + json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+    return "\n\n".join(sections)

@@ -1,1 +1,1 @@
-second task authority scan: PASS
+PASS: package creates no SQLite task authority or Scheduler class

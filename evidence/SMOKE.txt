@@ -1,6 +1,4 @@
-Hermes Kanban Labs v0.1.0 release smoke
-UTC: 2026-08-29T16:25:44Z
-.................                                                        [100%]
-17 passed in 1.12s
+..........................                                               [100%]
+26 passed in 1.17s
 UPSTREAM CONTRACT PASS
 SMOKE PASS

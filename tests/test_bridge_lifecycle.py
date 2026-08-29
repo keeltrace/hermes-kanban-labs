@@ -80,3 +80,29 @@ def test_lost_claim_cancels_remote_and_never_completes_successor(tmp_path):
     assert run.cancelled is True
     assert kb.completed == []
     assert kb.heartbeats >= 1
+
+
+def test_bridge_preserves_workspace_kind_and_card_execution_spec(tmp_path):
+    kb = FakeKB()
+    run = FakeRun(0.01, 0, "ok")
+    seen = {}
+    pl = payload(cfg(tmp_path))
+    pl["workspace_kind"] = "worktree"
+    pl["execution"] = {
+        "model": "card-model",
+        "provider": "card-provider",
+        "reasoning_effort": "high",
+        "skills": ["git", "tests"],
+        "policy_sources": ["card:model_override"],
+    }
+    def start(*args, **kwargs):
+        seen.update(kwargs)
+        return run
+    rc = run_payload(pl, kb=kb, executor_start=start)
+    assert rc == 0
+    spec = seen["spec"]
+    assert spec.workspace_kind == "worktree"
+    assert spec.model == "card-model"
+    assert spec.provider == "card-provider"
+    assert spec.reasoning_effort == "high"
+    assert spec.skills == ("git", "tests")

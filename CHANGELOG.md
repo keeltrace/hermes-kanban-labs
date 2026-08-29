@@ -1,14 +1,20 @@
 # Changelog
 
-## 0.1.0 — experimental alpha
+## 0.2.0 — 2026-08-29
 
-- Reframed project as a thin power-user extension to upstream Hermes Kanban.
-- Removed the previous separate Fleet SQLite/control-plane design.
-- Added minimal compatibility patch for current-main custom `spawn_fn` + non-profile lanes.
-- Added mixed upstream-profile and experimental worker dispatch.
-- Added SSH/Docker worker backend using the official Hermes image.
-- Added one-logical-worker sharded-inference configuration.
-- Added claim heartbeat, exact-run completion fencing, lost-claim cancellation, and upstream-owned crash/retry behavior.
-- Added optional rsync workspace transport.
-- Added current-main drift workflow and conservative upstream sync script.
-- Added unit, negative-path, and real subprocess command-shim smoke tests.
+- Add Git-native SSH/Docker workspaces and non-destructive result refs.
+- Preserve native card model/provider/reasoning/skills across remote execution.
+- Add board/workflow/nested-path adaptive policy and stacked prompts.
+- Add anti-sprawl frontier budget projection and CLI.
+- Add vertical workflow/path tree projection and JSON output.
+- Document the state/policy/execution plane boundary explicitly.
+- Track/reuse upstream PR #91981 rather than duplicating Docker worktree authority.
+- Keep SQLite and all Kanban lifecycle authority upstream.
+
+## 0.1.0 — 2026-08-29
+
+- First public alpha.
+- External `spawn_fn` compatibility seam.
+- SSH/Docker logical workers.
+- Sharded inference endpoint as one logical Kanban worker.
+- Exact-run lifecycle bridge and failure injection tests.

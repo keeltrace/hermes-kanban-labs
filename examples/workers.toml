@@ -2,6 +2,41 @@
 heartbeat_seconds = 60
 # claim_ttl_seconds = 1800
 
+# ---------------------------------------------------------------------------
+# POLICY PLANE — never task state. Hermes SQLite remains authoritative.
+# Resolution: worker -> global -> board -> workflow -> nested path -> card.
+# Native card model/provider/reasoning overrides always win last.
+# ---------------------------------------------------------------------------
+[policy]
+max_open_cards = 30
+max_ready_cards = 8
+max_children_per_card = 5
+max_depth = 5
+prompt = "Prefer completing, merging, or blocking existing work before expanding the board. Never delete board history merely to make the graph smaller."
+
+[boards.default]
+prompt = "This board is a software delivery board. Preserve evidence and Git history."
+
+[boards.default.paths."research"]
+model = "your-fast-research-model"
+prompt = "Explore alternatives and record evidence before choosing a direction."
+
+[boards.default.paths."research.deep"]
+reasoning_effort = "high"
+prompt = "For deep research, compare at least two viable approaches and state the tradeoff."
+
+[boards.default.workflows.release]
+prompt = "This card is part of the release workflow. Prefer reviewable increments."
+
+[boards.default.workflows.release.paths."implementation"]
+model = "your-coding-model"
+prompt = "Implement the smallest complete slice and run focused tests."
+
+[boards.default.workflows.release.paths."review"]
+model = "your-review-model"
+reasoning_effort = "high"
+prompt = "Act as a skeptic: try to disprove completion before approving it."
+
 # One normal machine = one logical Kanban worker.
 [workers.mac-mini-01]
 backend = "ssh-docker"
@@ -10,15 +45,16 @@ image = "nousresearch/hermes-agent:latest"
 provider = "openai-api"
 model = "your-local-model"
 base_url = "http://host.docker.internal:8080/v1"
-workspace = "rsync"
+# git = preserve an actual task worktree, overlay dirty/untracked files, and
+# fetch remote commits back into refs/hermes-kanban-labs/results/<task-run>.
+workspace = "git"
 # Optional file that ALREADY EXISTS ON THE REMOTE HOST. It is never copied
 # from the controller by Hermes Kanban Labs.
 # remote_env_file = "/Users/you/.config/hermes-worker.env"
 
 # Twenty inference machines can still appear to Hermes Kanban as ONE worker.
 # The Shard/MLX/etc. cluster is responsible for exposing one OpenAI-compatible
-# inference endpoint. Hermes Kanban Labs does not schedule the individual
-# model stages.
+# inference endpoint. Labs does not schedule individual model stages.
 [workers.monster-shard]
 kind = "shard_cluster"
 cluster_nodes = 20
@@ -28,4 +64,4 @@ image = "nousresearch/hermes-agent:latest"
 provider = "openai-api"
 model = "huge-distributed-model"
 base_url = "http://10.0.0.50:8000/v1"
-workspace = "rsync"
+workspace = "git"

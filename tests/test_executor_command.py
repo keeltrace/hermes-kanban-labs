@@ -1,5 +1,6 @@
 from hermes_kanban_labs.config import WorkerConfig
-from hermes_kanban_labs.executors.ssh_docker import _docker_command
+from hermes_kanban_labs.executors.base import ExecutionSpec
+from hermes_kanban_labs.executors.ssh_docker import _docker_command, _hermes_args
 
 
 def test_cluster_is_one_hermes_container_pointing_at_one_gateway():
@@ -51,3 +52,23 @@ def test_remote_shell_receives_one_safely_quoted_command(tmp_path, monkeypatch):
     assert len(popen_cmd) == 3
     assert "docker run" in popen_cmd[2]
     assert "/Users/test/.cache/hermes-kanban-labs" in popen_cmd[2]
+
+
+def test_card_execution_spec_overrides_static_worker_model_and_carries_reasoning_skills():
+    w = WorkerConfig(
+        name="w", backend="ssh-docker", ssh="u@h", provider="worker-provider", model="worker-model"
+    )
+    spec = ExecutionSpec(
+        model="card-model", provider="card-provider", reasoning_effort="high", skills=("git", "tests")
+    )
+    _, argv = _docker_command(w, "t", 9, "prompt", None, spec)
+    assert "card-model" in argv and "worker-model" not in argv
+    assert "card-provider" in argv and "worker-provider" not in argv
+    assert argv[argv.index("--reasoning") + 1] == "high"
+    assert argv.count("--skills") == 2
+    assert "git" in argv and "tests" in argv
+
+
+def test_execution_spec_keeps_upstream_workspace_kind():
+    spec = ExecutionSpec(workspace_kind="worktree")
+    assert spec.workspace_kind == "worktree"

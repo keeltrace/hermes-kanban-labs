@@ -7,7 +7,9 @@ import hermes_kanban_labs.dispatcher as d
 
 
 class Conn:
-    def execute(self, sql, params):
+    def execute(self, sql, params=()):
+        if "COUNT(*)" in sql:
+            return SimpleNamespace(fetchone=lambda: (0,))
         return SimpleNamespace(fetchall=lambda: [])
     def close(self):
         pass

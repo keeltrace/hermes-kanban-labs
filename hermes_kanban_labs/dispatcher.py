@@ -11,6 +11,17 @@ import time
 
 from .config import load_config
 from .context import build_task_context
+from .frontier import inspect_frontier
+from .policy import resolve_execution_policy
+
+
+def _connect(kb, board: str | None):
+    try:
+        return kb.connect(board=board)
+    except TypeError:
+        if board:
+            os.environ["HERMES_KANBAN_BOARD"] = board
+        return kb.connect()
 
 
 def make_spawn(config_path: str, *, kb):
@@ -22,15 +33,14 @@ def make_spawn(config_path: str, *, kb):
             # Mixed mode: ordinary Hermes profiles keep using the exact upstream path.
             return kb._default_spawn(task, workspace, board=board)
 
+        worker = cfg.workers[assignee]
+        policy = resolve_execution_policy(cfg, worker, task, board)
+
         # Build the remote snapshot from the same canonical board that owns the claim.
+        conn = _connect(kb, board)
         try:
-            conn = kb.connect(board=board)
-        except TypeError:
-            if board:
-                os.environ["HERMES_KANBAN_BOARD"] = board
-            conn = kb.connect()
-        try:
-            prompt = build_task_context(conn, task)
+            frontier = inspect_frontier(conn, policy)
+            prompt = build_task_context(conn, task, policy=policy, frontier=frontier)
         finally:
             conn.close()
 
@@ -39,9 +49,27 @@ def make_spawn(config_path: str, *, kb):
             "worker": assignee,
             "board": board,
             "workspace": workspace,
+            "workspace_kind": getattr(task, "workspace_kind", None),
+            "branch_name": getattr(task, "branch_name", None),
+            "workflow_template_id": getattr(task, "workflow_template_id", None),
+            "current_step_key": getattr(task, "current_step_key", None),
             "run_id": getattr(task, "current_run_id", None),
             "claim_lock": getattr(task, "claim_lock", None),
             "prompt": prompt,
+            "execution": {
+                "model": policy.model,
+                "provider": policy.provider,
+                "reasoning_effort": policy.reasoning_effort,
+                "skills": list(policy.skills),
+                "policy_sources": list(policy.sources),
+            },
+            "frontier": {
+                "open_cards": frontier.open_cards,
+                "ready_cards": frontier.ready_cards,
+                "max_open_cards": frontier.max_open_cards,
+                "max_ready_cards": frontier.max_ready_cards,
+                "saturated": frontier.saturated,
+            },
             "config": str(Path(config_path).expanduser().resolve()),
         }
         state = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))) / "kanban-labs" / "runs"
@@ -79,10 +107,7 @@ def dispatch_once(config_path: str, board: str | None = None):
     if board:
         os.environ["HERMES_KANBAN_BOARD"] = board
     kb.init_db(board=board) if board else kb.init_db()
-    try:
-        conn = kb.connect(board=board)
-    except TypeError:
-        conn = kb.connect()
+    conn = _connect(kb, board)
     try:
         return kb.dispatch_once(conn, spawn_fn=make_spawn(config_path, kb=kb), board=board)
     finally:

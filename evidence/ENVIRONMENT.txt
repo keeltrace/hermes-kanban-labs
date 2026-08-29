@@ -1,4 +1,6 @@
-python: Python 3.13.5
-ssh: missing
-rsync: /usr/bin/rsync
-docker: unavailable in assembly sandbox (real hardware smoke not claimed)
+python:
+Python 3.13.5
+git:
+git version 2.47.3
+platform:
+Linux localhost 6.18.35 #1 SMP Fri Aug 21 00:36:21 UTC 2026 x86_64 GNU/Linux

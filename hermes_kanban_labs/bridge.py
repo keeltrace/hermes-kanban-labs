@@ -8,6 +8,7 @@ import signal
 import threading
 
 from .config import load_config
+from .executors.base import ExecutionSpec
 from .executors.ssh_docker import start as start_execution
 
 
@@ -36,11 +37,24 @@ def run_payload(payload: dict, *, kb=None, executor_start=start_execution) -> in
     claim_lock = payload.get("claim_lock")
     prompt = payload["prompt"]
     workspace = payload.get("workspace") or None
+    execution_raw = payload.get("execution") or {}
+    spec = ExecutionSpec(
+        model=execution_raw.get("model"),
+        provider=execution_raw.get("provider"),
+        reasoning_effort=execution_raw.get("reasoning_effort"),
+        skills=tuple(execution_raw.get("skills") or ()),
+        workspace_kind=payload.get("workspace_kind"),
+    )
     if not claim_lock:
         raise RuntimeError("bridge payload is missing the upstream claim_lock")
 
     execution = executor_start(
-        worker, task_id=task_id, run_id=run_id, prompt=prompt, workspace=workspace
+        worker,
+        task_id=task_id,
+        run_id=run_id,
+        prompt=prompt,
+        workspace=workspace,
+        spec=spec,
     )
     stop = threading.Event()
     claim_lost = threading.Event()
@@ -66,9 +80,11 @@ def run_payload(payload: dict, *, kb=None, executor_start=start_execution) -> in
     thread.start()
 
     previous = {}
+
     def cancel_signal(signum, _frame):
         execution.cancel()
         raise SystemExit(128 + int(signum))
+
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
             previous[sig] = signal.signal(sig, cancel_signal)
@@ -97,6 +113,22 @@ def run_payload(payload: dict, *, kb=None, executor_start=start_execution) -> in
     output = (result.output or "").strip()
     if len(output) > 12000:
         output = output[-12000:]
+    labs_metadata = {
+        "worker": worker.name,
+        "kind": worker.kind,
+        "cluster_nodes": worker.cluster_nodes,
+        "execution": {
+            "model": spec.model,
+            "provider": spec.provider,
+            "reasoning_effort": spec.reasoning_effort,
+            "skills": list(spec.skills),
+            "policy_sources": list(execution_raw.get("policy_sources") or ()),
+        },
+        "frontier": payload.get("frontier") or {},
+    }
+    if result.metadata:
+        labs_metadata.update(result.metadata)
+
     conn = _connect(kb, board)
     try:
         completed = kb.complete_task(
@@ -104,13 +136,7 @@ def run_payload(payload: dict, *, kb=None, executor_start=start_execution) -> in
             task_id,
             result=output or "Remote Hermes worker completed successfully.",
             summary=(output[-2000:] if output else "Remote Hermes worker completed successfully."),
-            metadata={
-                "hermes_kanban_labs": {
-                    "worker": worker.name,
-                    "kind": worker.kind,
-                    "cluster_nodes": worker.cluster_nodes,
-                }
-            },
+            metadata={"hermes_kanban_labs": labs_metadata},
             expected_run_id=int(run_id) if run_id is not None else None,
         )
     finally:

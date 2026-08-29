@@ -1,126 +1,210 @@
-# SURGE convergence report
+# BIG BROTHER 3.3 + SURGE convergence report — v0.2.0
+
+## GOAL
+
+Turn the first public alpha into a genuinely useful **Kanban Labs** release: stay near upstream Hermes `main`, preserve the canonical board/lifecycle, and make experimental remote workers inherit the same Git and per-card execution semantics power users expect locally.
+
+## USER JOURNEY
+
+A power user should be able to:
+
+1. keep one normal Hermes Kanban board as authority;
+2. assign cards to local profiles, SSH/Docker workers, or one logical worker backed by a distributed model cluster;
+3. define different prompts/models/reasoning by board, workflow, and nested path while retaining card-level overrides;
+4. let remote coding workers operate in real Git worktrees and return inspectable commits;
+5. view workflow/path structure vertically without losing dependency relationships;
+6. see when the board frontier is too large and stop speculative expansion before agents cope by destroying history.
+
+## ACCEPTANCE CONDITIONS
+
+- No second board DB, scheduler, retry ledger, or completion authority.
+- Remote execution preserves card model/provider/reasoning/skills.
+- Git transport preserves real worktree semantics and never silently moves the controller branch.
+- TOML is policy only; SQLite remains state.
+- Workflow/path policy is deterministic and nested.
+- Vertical projection reads canonical state and can emit JSON.
+- Frontier budget projection is derived from canonical state and never mutates it.
+- Current upstream-owned work is reused instead of cloned into Labs.
+- Tests exercise policy precedence, Git movement, lifecycle fencing, and failure behavior.
+
+## NON-GOALS
+
+- Replacing the Hermes dashboard/API.
+- Creating a Labs workflow database.
+- Implementing tensor/model sharding itself.
+- Auto-merging remote Git results.
+- Taking ownership of upstream card creation without a clean policy/admission seam.
+
+---
 
 ## CURRENT STATE
 
-The starting `Hermes Fleet v0.2` ZIP had useful SSH/Docker worker code but also introduced a separate FastAPI control plane, SQLite task store, and scheduler. That architecture duplicated the authority Hermes Kanban already owns.
+v0.1 correctly removed the earlier duplicate Fleet control plane, but community review exposed four material gaps:
 
-Upstream reality on 2026-08-29:
-
-- Hermes Kanban already owns a shared SQLite board, CAS claims, task runs, dependencies, retry/failure breaker, review dispatch, concurrency controls, worker PIDs, logs, and heartbeats.
-- `dispatch_once(..., spawn_fn=...)` already exists.
-- Current profile gates prevent that seam from realizing non-profile lanes in production.
-- #29244 tracks distributed workers with one central board.
-- #70547 tracks a supported production path for the existing external spawn seam.
-- #94363 tracks broader mesh/edge-compute composition.
+- SSH workspace transfer stripped `.git`, making remote coding workers less capable than local worktree workers.
+- Worker TOML model/provider defaults could override/drop richer native per-card execution intent.
+- TOML versus SQLite authority was not explained clearly enough.
+- There was no good projection for workflow paths or a direct answer to graph/card sprawl.
 
 ## TARGET STATE
 
-A publishable experimental Hermes power-user release that stays close to upstream `main` and makes extreme Kanban subworkers usable now:
+v0.2 uses three explicit planes:
 
-- one canonical Hermes control/board;
-- unlimited logical worker definitions subject to upstream concurrency;
-- standalone remote Dockerized Hermes workers;
-- one logical worker optionally backed by many model-shard machines;
-- no duplicate board, scheduler, retry engine, or lifecycle authority;
-- explicit fail-closed run fencing;
-- reproducible smoke evidence;
-- current-main drift detection.
+```text
+STATE      upstream Hermes SQLite only
+POLICY     Labs TOML (worker / board / workflow / nested path / budgets)
+EXECUTION  local / SSH+Docker / distributed inference endpoint
+```
 
 ## DUPLICATES KILLED
 
-- Labs/Fleet SQLite `tasks` database: removed.
-- Labs scheduler: removed.
-- persistent node-agent/control WebSocket plane: removed from the critical path.
-- custom retry/completion ledger: removed.
-- model-shard scheduling inside Kanban: rejected; that belongs to the inference backend.
+- **New Git-worktree manager:** killed. Upstream PR #91981 already owns task-scoped Docker/worktree authority. Labs adds only remote-host transport around the concept.
+- **New board REST API:** killed. Upstream dashboard/plugin APIs remain canonical. Labs exposes projections through CLI/JSON.
+- **New workflow state store:** killed. Existing Hermes `workflow_template_id` and `current_step_key` are reused.
+- **New task scheduler / retry engine:** still killed from v0.1. Upstream dispatch/claims/runs/breaker remain authoritative.
+- **Hard patch into `kanban_create`:** rejected for v0.2. No clean pre-create policy seam exists on the current integration boundary; widening the patch would create mutation-policy ownership Labs should not silently assume.
 
 ## ACTIVE OWNERS TO RESPECT
 
-- NousResearch/hermes-agent maintainers own canonical Kanban semantics.
-- Upstream #29244 / #70547 / #94363 own relevant design destinations.
-- Model-sharding projects own tensor/model placement; Labs consumes an inference endpoint.
+- Hermes maintainers own canonical Kanban state/lifecycle/API semantics.
+- #70547 owns the destination for a production external-spawn seam.
+- #29244 owns the central-board distributed-worker direction.
+- #91981 actively owns task-scoped Docker/worktree authority.
+- Distributed inference projects own model/tensor placement.
 
-## CLEAN GAPS
+## CLEAN GAPS ACTUALIZED
 
-1. Make the already-existing `spawn_fn` seam usable for non-profile lanes without changing stock behavior.
-2. Map one experimental assignee to one local bridge PID.
-3. Let that bridge execute Hermes remotely through SSH/Docker.
-4. Preserve upstream heartbeat/crash/run fencing.
-5. Treat a sharded inference cluster as one logical worker endpoint.
-6. Continuously test against current upstream main.
+1. Remote Git transport around a real task worktree.
+2. Execution-policy parity for card model/provider/reasoning/skills.
+3. Board/workflow/nested-path policy composition.
+4. Vertical workflow/path projection over canonical state.
+5. Read-only anti-sprawl frontier projection + operator/worker guidance.
+6. Documentation that makes state/policy/execution ownership unambiguous.
+
+---
+
+## CAUSAL MAP
+
+```text
+Hermes card + links + run identity (SQLite)
+   ↓
+Labs resolves worker + policy
+   ↓
+worker/global/board/workflow/path policy
+   ↓
+native card overrides win last
+   ↓
+canonical frontier snapshot
+   ↓
+local bridge PID
+   ↓
+SSH/Docker executor
+   ↓
+real Git worktree OR ordinary workspace
+   ↓
+whole model/API OR one distributed inference gateway
+   ↓
+worker result + optional Git result ref
+   ↓
+expected_run_id fenced completion
+```
+
+No v0.2 feature sits outside this chain merely for novelty.
+
+---
 
 ## ROOK
 
-**Score: 9.2/10. Hard veto: cleared after redesign.**
+**Score: 9.4/10 — no hard veto.**
 
-Required corrections completed:
+Corrections:
 
-- removed second source of truth;
-- kept compatibility patch minimal and deletable;
-- preserved upstream default spawn for normal profiles;
-- stale run cannot complete successor run;
-- remote failure is visible and handed to upstream retry logic;
-- no silent credential copying;
-- sync script refuses dirty-tree automation and never force-pushes.
+- state remains exclusively upstream SQLite;
+- no Labs scheduler/API/task ledger added;
+- active upstream Git/worktree ownership is reused, not duplicated;
+- Git result capture is non-destructive: result ref, never silent branch reset/merge;
+- remote host never receives controller origin credentials;
+- exact run/claim fencing remains intact;
+- frontend/tree work is a projection, not a second board implementation;
+- hard graph-admission mutation was *not* smuggled into the compatibility patch.
 
-Remaining ROOK debt: the compatibility patch touches a private-ish upstream seam and therefore needs continuous drift testing until upstream exposes a supported production hook.
+Remaining ROOK debt: `workspace="git"` needs real multi-host failure/restart testing, especially remote disconnect during bundle/result transfer and cleanup of abandoned remote worktrees.
 
 ## NOVA
 
-**Score: 9.0/10.**
+**Score: 9.3/10.**
 
-The user journey is now the intended one: main Hermes keeps normal Kanban; power users configure remote worker names; one worker can be an ordinary machine or a distributed-model superworker; no Hermes install is required on every executor beyond Docker image execution.
+The release now addresses the actual reviewer experience:
 
-Remaining NOVA debt: this build environment had no Docker daemon or external SSH host, so the packaged alpha cannot truthfully claim a live physical-hardware run here.
+- coding workers get Git instead of flattened files;
+- different workflows/paths can select different models/prompts;
+- card overrides still work remotely;
+- board state/backend is no longer ambiguous;
+- nested paths can be read vertically;
+- sprawl is visible and policy-bounded instead of hand-waved.
+
+Remaining NOVA gap: frontier limits are advisory/diagnostic in v0.2 rather than a host-orchestrator `kanban_create` hard gate. This is explicit, not hidden.
 
 ## SURGE
 
-**Score: 9.6/10.**
+**Score: 9.7/10.**
 
-Work was converted from architecture discussion into code, failure injection, process smoke, current-main compatibility checks, CI, sync tooling, and a publishable artifact. Upstream open issues were treated as destinations rather than reasons to wait.
+The feedback was converted immediately into code, tests, CLI surfaces, docs, and a release artifact instead of a roadmap-only reply.
 
 ## WINNING ACTION
 
-Ship the thin experimental execution layer and tiny current-main compatibility seam now; delete pieces as upstream absorbs them.
+Ship **v0.2 as a thin composition release**: Git-native remote workers + adaptive policy + vertical projection + frontier evidence, while preserving Hermes ownership and tracking the upstream seams that should eventually delete Labs code.
 
 ## PARALLEL ACTION
 
-Community contributors can add/test executor backends, Mac/Apple Silicon model gateways, workspace transports, observability, and real hardware matrices without changing the canonical Kanban authority.
+- Real Mac/Linux SSH worker compatibility matrix.
+- Real Shard/MLX distributed-model worker test.
+- Design/submit a narrow upstream card-admission hook so frontier budgets can become a hard orchestrator guard without Labs taking board ownership.
+- Optional dashboard tree view that consumes existing upstream API data.
 
 ## COLLABORATION ACTION
 
-Feed concrete integration findings back to #29244/#70547 and consume upstream changes as soon as equivalent seams land.
+- Test/review #91981 rather than reimplement its task-runtime authority.
+- Feed external-spawn findings into #70547.
+- Feed distributed-worker lifecycle findings into #29244.
+- Invite users with real Shard/MLX clusters to exercise `monster-shard` as one logical worker.
 
 ## TRUE BLOCKER
 
-No architectural blocker remains for publishing the experimental alpha. A true live hardware acceptance run requires an actual Docker-capable SSH worker/model endpoint; this sandbox did not provide one.
+`FINISHED_FOR_REAL` still requires hardware evidence not available in this build environment:
+
+- real SSH + Docker host;
+- disconnect/reconnect during remote Git execution;
+- cleanup/recovery of a stranded remote worktree;
+- real distributed inference endpoint (ideally multi-Mac) used by one Hermes worker.
 
 ## NEXT EXECUTABLE STEP
 
-Publish the repository as an experimental alpha, then run `hkl ... doctor --pull` and one disposable real Kanban task on a community test machine. Record that matrix in the first release notes rather than rewriting architecture again.
+Publish/update v0.2, then run one disposable coding card with `workspace="git"` on a real remote node. Verify the fetched `refs/hermes-kanban-labs/results/<task-run>` commit, kill the SSH path mid-run once, and record cleanup/recovery evidence.
 
 ## EVIDENCE PRODUCED
 
-- 17/17 Python tests passing during convergence.
-- real subprocess smoke: bridge -> SSH shim -> Docker command shim -> worker output -> exact-run completion.
-- paired remote-exit failure smoke proving no false completion.
-- lost-claim failure injection proving cancellation and no stale completion.
-- patch idempotence + upstream-drift failure tests.
-- no-second-authority guard.
-- Python compilation and CLI smoke.
-- isolated `pip --target` package install and wheel build succeeded.
+- 26/26 Python tests passing before packaging.
+- Existing subprocess bridge → SSH → Docker-shim smoke still passes.
+- Existing lost-claim and remote-nonzero negative paths still pass.
+- Policy precedence test proves global → board → workflow → nested paths → card override.
+- Remote command test proves card execution spec replaces static worker model/provider and carries reasoning + skills.
+- Real temporary Git repositories prove exact `HEAD` bundles can materialize into a remote-style bare ref without origin credentials.
+- Frontier test proves saturation projection is read-only against canonical-style SQLite state.
+- Tree test proves workflow/path indentation and parent/child dependency metadata coexist.
+- No-second-authority test still rejects Labs-owned SQLite/scheduler creation.
+- Upstream compatibility contract smoke passes.
 
 ## ARTIFACTS PRODUCED
 
-- working `hermes_kanban_labs` package;
-- conservative upstream patcher;
-- SSH/Docker executor;
-- sharded-worker configuration contract;
-- upstream sync tooling;
-- scheduled current-main compatibility workflow;
-- architecture/security/contribution docs;
-- publishable ZIP + checksums.
+- Git-native SSH/Docker executor.
+- Adaptive policy resolver.
+- Frontier projection.
+- Vertical tree/JSON projection.
+- `hkl frontier` and `hkl tree` commands.
+- Workflow/Git/anti-sprawl architecture docs.
+- Updated public release ZIP/wheel/checksums.
 
 ## STATUS
 
-**FINISHED** — publishable experimental alpha. Not labeled `FINISHED_FOR_REAL` until a real external Docker host/model endpoint completes the physical hardware acceptance run.
+**FINISHED** — a materially stronger publishable alpha. **Not FINISHED_FOR_REAL** until the external hardware/restart/recovery journey is witnessed end-to-end.

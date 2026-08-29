@@ -1,4 +1,6 @@
 upstream=NousResearch/hermes-agent
-verified_main_sha=3f36c87e1ebdfbf7d14a88229dc9be222c12ea89
-verified_commit_utc=2026-08-29T15:29:15Z
-issues=29244,70547,94363
+verified_main_sha=4209d371aa1bb8840ce8447555bdd863a1a96c38
+verified_main_utc=2026-08-29T17:11:55Z
+compatibility=experimental-current-main
+active_owner_pr_91981=open; reuse task-scoped Docker/worktree authority
+relevant_issues=29244,70547,94363

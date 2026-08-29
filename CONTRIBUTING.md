@@ -1,30 +1,35 @@
 # Contributing
 
-This project is for Hermes power users who want to prove advanced Kanban execution patterns before every upstream interface is finalized.
+Hermes Kanban Labs is for power users proving advanced Kanban compositions before every upstream interface is finalized.
 
 ## Contribution rule
 
-A contribution should either:
+Good changes:
 
-- make an existing upstream primitive usable in a new worker environment;
-- improve failure/recovery evidence;
-- add a backend without creating another Kanban authority;
-- improve compatibility with current Hermes `main`;
-- remove Labs code because upstream now provides the capability natively.
+- make an existing Hermes primitive usable on remote/odd hardware;
+- preserve upstream card/workflow semantics across an experimental executor;
+- improve Git/worktree transport without competing with upstream task authority;
+- add failure/recovery evidence;
+- improve vertical/tree projections or policy inspection using canonical state;
+- add a model/inference backend adapter without turning model shards into board workers;
+- remove Labs code because upstream now provides it natively.
 
-Please do not add a second task scheduler, board database, dependency engine, retry ledger, or orchestration framework.
+Please do **not** add a second task scheduler, board DB, dependency engine, retry ledger, workflow state store, or duplicate board REST API.
 
 ## Before opening a PR
 
 ```bash
 ./scripts/smoke.sh
+git diff --check
 ```
 
-Also run against a current Hermes checkout when your change touches integration behavior:
+For upstream-integration work:
 
 ```bash
 python scripts/apply_upstream_patch.py /path/to/hermes-agent
 python scripts/verify_upstream_contract.py /path/to/hermes-agent
 ```
 
-For hardware-specific changes, include the actual environment tested: OS, architecture, Docker version, Hermes upstream SHA, model backend, network shape, and failure cases exercised.
+Check active upstream PRs/issues first. In particular, task-scoped Docker/worktree authority currently has active upstream ownership in #91981; collaborate/consume rather than reimplementing the same security contract in Labs.
+
+For hardware-specific changes, include OS, architecture, Docker runtime, Hermes SHA, workspace mode, model backend, network shape, and at least one failure/recovery case.

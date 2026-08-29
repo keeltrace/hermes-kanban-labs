@@ -1,85 +1,78 @@
 # Architecture
 
-## Authority
-
-There is one authority: upstream Hermes Kanban.
-
-`hermes_cli.kanban_db` owns tasks, dependencies, claims, runs, retries, completion, review, logs, and dispatch concurrency. Hermes Kanban Labs must never become another owner of those facts.
-
-## Experimental seam
-
-Current upstream `dispatch_once()` already accepts `spawn_fn(task, workspace_path, board) -> Optional[int]`, but current profile gates skip non-profile assignees before the custom function is reached. Labs carries a deliberately small compatibility patch that bypasses those profile-only checks **only when `spawn_fn` is explicitly supplied**.
-
-That means the stock path remains stock:
+## Three planes, one authority
 
 ```text
-spawn_fn=None -> require real Hermes profile -> upstream _default_spawn
+STATE PLANE — upstream Hermes only
+  kanban.db
+  tasks / task_links / runs / comments / lifecycle / review / retries
+
+POLICY PLANE — Hermes Kanban Labs TOML
+  worker realization
+  board/workflow/path prompts
+  model/provider/reasoning defaults
+  frontier budgets
+
+EXECUTION PLANE
+  upstream local profiles
+  SSH + Docker workers
+  sharded/distributed inference behind one logical worker
 ```
 
-Labs path:
+TOML never mirrors task state and Labs never creates another scheduler or task ledger.
+
+## Experimental spawn seam
+
+Current upstream `dispatch_once()` accepts `spawn_fn(task, workspace_path, board) -> Optional[int]`, but profile gates skip non-profile assignees before a custom function can realize them. Labs carries a tiny compatibility patch that bypasses those profile-only checks only when `spawn_fn` is explicitly supplied.
 
 ```text
-spawn_fn=Labs -> assigned lane may be external -> Labs decides realization
+spawn_fn=None -> real Hermes profile -> upstream _default_spawn
+spawn_fn=Labs -> Labs worker name -> local bridge -> experimental executor
+              -> ordinary profile -> upstream _default_spawn
 ```
 
-## Mixed mode
+## Local bridge = lifecycle compatibility
 
-The Labs spawner receives every task the patched dispatcher is allowed to spawn.
+Upstream expects a host-local PID. Labs returns a disposable local bridge PID even when work runs elsewhere. The bridge heartbeats the exact upstream claim, cancels remote execution if ownership is lost, and completes only the exact `current_run_id` it was given.
 
-- configured Labs worker name -> launch local bridge;
-- anything else -> call upstream `_default_spawn` unchanged.
+Remote nonzero exit is not translated into success or a Labs retry. The bridge exits nonzero and upstream Hermes remains responsible for crash detection, retry, and failure-breaker behavior.
 
-This lets one board contain normal local profiles and experimental remote workers.
+## Adaptive execution policy
 
-## Why the bridge is local
+Execution policy resolves from broad to narrow:
 
-Upstream stores a worker PID and uses host-local process liveness as part of its lifecycle safety net. Labs therefore launches a small **local bridge process** and returns that PID to upstream.
+`worker -> global -> board -> workflow -> nested path -> native card override`
 
-The bridge owns only:
+Prompts stack; model/provider/reasoning override. Native card `model_override`, `provider_override`, `reasoning_effort`, and `skills` win last. See `WORKFLOW_POLICY.md`.
 
-- remote process transport;
-- upstream claim heartbeat on behalf of the remote execution;
-- exact-run completion after a successful result;
-- cancellation of remote work if ownership is lost.
+## Git-native remote workspace
 
-The bridge is disposable and stores no task ledger.
+`workspace="git"` creates a run-specific Git worktree on the SSH host from a credential-free bundle of the exact controller HEAD. Dirty/untracked files are overlaid without replacing `.git`. After execution, the remote commit is fetched back into a Labs result ref; Labs never silently moves the controller's branch. See `GIT_REMOTE_WORKSPACES.md`.
 
-## Standalone worker
-
-```text
-upstream card
- -> Labs local bridge PID
- -> SSH
- -> Docker
- -> official Hermes image
- -> whole model or ordinary provider
- -> result
- -> exact upstream run completion
-```
+Upstream PR #91981 owns task-scoped Docker worktree authority inside Hermes. Labs tracks/reuses that work rather than competing with it.
 
 ## Sharded cluster worker
 
 ```text
 upstream card
- -> ONE Labs local bridge PID
+ -> ONE Labs bridge PID
  -> SSH coordinator
  -> ONE Dockerized Hermes agent
- -> OpenAI-compatible inference endpoint
- -> distributed model system
-      shard node 1
-      shard node 2
-      ...
-      shard node N
- -> one agent result
- -> exact upstream run completion
+ -> one inference endpoint
+ -> distributed model backend (Shard / MLX / other)
+      node 1 ... node N
+ -> one result
+ -> exact upstream completion
 ```
 
-The model-shard machines are inference infrastructure, not Kanban workers. Labs intentionally does not own their scheduling.
+The inference nodes are not Kanban workers. Labs does not own tensor/model placement.
 
-## Workspace MVP
+## Vertical/tree projection
 
-`workspace="none"` transfers no host workspace.
+`hkl tree --board <slug>` reads the canonical Hermes task/link state and renders cards vertically by `workflow_template_id` and nested `current_step_key`. Dependency parents/children remain explicit metadata; path nesting is not silently reinterpreted as dependency state.
 
-`workspace="rsync"` copies the claimed workspace to a run-specific directory on the remote host, excluding `.git/`, mounts it into the Hermes container as `/workspace`, then syncs modifications back after successful process exit. A sync-back failure turns the execution into a failure instead of silently claiming success.
+`--json` exposes the same projection for scripts without introducing an HTTP service or second API authority. The upstream Kanban dashboard API remains the board/card API.
 
-This is not yet a full git-worktree transport. That is future work and should reuse upstream worktree semantics rather than inventing a second branch manager.
+## Frontier budgets
+
+`hkl frontier` reads canonical state and applies policy-plane limits. This release deliberately stops short of patching upstream card creation; see `ANTI_SPRAWL.md` for the ownership boundary.

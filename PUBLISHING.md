@@ -1,40 +1,39 @@
-# Publishing
+# Publishing / updating the public Labs repo
 
-The source tree is ready to become a public GitHub repository.
+Public repository: `keeltrace/hermes-kanban-labs`
 
-Recommended repository name: `hermes-kanban-labs`
+## Updating an existing clone to v0.2
 
-Recommended description:
-
-> Experimental power-user execution backends for Hermes Kanban — remote Docker workers, sharded-model superworkers, and current-main integration without a second scheduler.
-
-## First publish with GitHub CLI
-
-From the extracted directory:
+Extract/copy the v0.2 source into a clean branch of the public repo, review the diff, then:
 
 ```bash
-git init
-git branch -M main
-git add .
-git commit -m "feat: publish Hermes Kanban Labs experimental alpha"
-gh repo create hermes-kanban-labs \
-  --public \
-  --source=. \
-  --remote=origin \
-  --push
+./scripts/smoke.sh
+git diff --check
+git add -A
+git commit -m "feat: Git-native remote workers and adaptive Kanban policy (v0.2.0)"
+git push origin main
 ```
 
-Then enable GitHub Actions and open Discussions if you want hardware reports and design experiments separated from bug issues.
+Do not mechanically overwrite a dirty public checkout. The release ZIP is intentionally source-only and contains no `.git` history.
 
-## Suggested first topics
+## Recommended release description
 
-- `good first issue`: test one real Linux SSH/Docker worker;
-- `hardware`: Apple Silicon / Mac mini worker matrix;
-- `inference`: Shard/MLX cluster gateway recipes;
-- `upstream`: track #29244 / #70547 integration changes;
-- `workspace`: preserve more upstream worktree semantics without duplicating branch authority;
-- `security`: cancellation/replay/claim-loss adversarial tests.
+> Hermes Kanban Labs v0.2: Git-native SSH workers, adaptive board/workflow/path model policy, vertical tree projection, and anti-sprawl frontier budgets — while keeping upstream Hermes SQLite and lifecycle authority canonical.
 
-## Fork mode
+## Hardware reports wanted
 
-If the community prefers a directly runnable Hermes fork rather than a companion Labs repository, keep `NousResearch/hermes-agent` as `upstream`, rebase frequently, vendor/install this package in the fork, and use `scripts/sync_upstream.sh`. The architectural rule remains the same: upstream Kanban stays authoritative and Labs-specific core diffs should shrink over time.
+Please include:
+
+- OS + architecture;
+- Docker version/runtime;
+- Hermes upstream SHA;
+- `workspace` mode;
+- model/inference backend;
+- whether the worker is standalone or a sharded-model logical worker;
+- happy-path result;
+- one disconnect/cancel/recovery test;
+- whether a Git result ref was returned and inspectable.
+
+## Upstream strategy
+
+If using a Hermes fork, keep `NousResearch/hermes-agent` as `upstream`, rebase frequently, and run `scripts/sync_upstream.sh`. Labs-specific core patches should shrink as equivalent upstream seams land.

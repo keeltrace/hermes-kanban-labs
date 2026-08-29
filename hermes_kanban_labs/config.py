@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 import os
 import tomllib
 
@@ -16,7 +17,7 @@ class WorkerConfig:
     model: str | None = None
     base_url: str | None = None
     remote_env_file: str | None = None
-    workspace: str = "none"  # none | rsync
+    workspace: str = "none"  # none | rsync | git
     remote_root: str = "~/.cache/hermes-kanban-labs"
     network: str | None = None
     kind: str = "standalone"  # standalone | shard_cluster
@@ -25,15 +26,103 @@ class WorkerConfig:
 
 
 @dataclass(frozen=True)
+class PolicyValues:
+    model: str | None = None
+    provider: str | None = None
+    reasoning_effort: str | None = None
+    prompt: str | None = None
+    max_open_cards: int | None = None
+    max_ready_cards: int | None = None
+    max_children_per_card: int | None = None
+    max_depth: int | None = None
+
+
+@dataclass(frozen=True)
+class WorkflowPolicy:
+    values: PolicyValues = field(default_factory=PolicyValues)
+    paths: dict[str, PolicyValues] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class BoardPolicy:
+    values: PolicyValues = field(default_factory=PolicyValues)
+    paths: dict[str, PolicyValues] = field(default_factory=dict)
+    workflows: dict[str, WorkflowPolicy] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class LabConfig:
     workers: dict[str, WorkerConfig]
     heartbeat_seconds: int = 60
     claim_ttl_seconds: int | None = None
+    policy: PolicyValues = field(default_factory=PolicyValues)
+    boards: dict[str, BoardPolicy] = field(default_factory=dict)
 
 
 def default_config_path() -> Path:
     raw = os.environ.get("HERMES_KANBAN_LABS_CONFIG")
     return Path(raw).expanduser() if raw else Path.home() / ".config" / "hermes-kanban-labs" / "workers.toml"
+
+
+def _positive_optional(raw: dict[str, Any], key: str) -> int | None:
+    value = raw.get(key)
+    if value is None:
+        return None
+    parsed = int(value)
+    if parsed < 1:
+        raise ValueError(f"{key} must be positive")
+    return parsed
+
+
+def _policy_values(raw: dict[str, Any] | None) -> PolicyValues:
+    raw = raw or {}
+    return PolicyValues(
+        model=str(raw.get("model")).strip() if raw.get("model") else None,
+        provider=str(raw.get("provider")).strip() if raw.get("provider") else None,
+        reasoning_effort=str(raw.get("reasoning_effort")).strip() if raw.get("reasoning_effort") else None,
+        prompt=str(raw.get("prompt")).strip() if raw.get("prompt") else None,
+        max_open_cards=_positive_optional(raw, "max_open_cards"),
+        max_ready_cards=_positive_optional(raw, "max_ready_cards"),
+        max_children_per_card=_positive_optional(raw, "max_children_per_card"),
+        max_depth=_positive_optional(raw, "max_depth"),
+    )
+
+
+def _paths(raw: Any) -> dict[str, PolicyValues]:
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError("paths must be TOML tables")
+    out: dict[str, PolicyValues] = {}
+    for name, values in raw.items():
+        key = str(name).strip().strip(".")
+        if not key:
+            raise ValueError("path key cannot be empty")
+        if not isinstance(values, dict):
+            raise ValueError(f"path {key!r} must be a TOML table")
+        out[key] = _policy_values(values)
+    return out
+
+
+def _workflow(raw: dict[str, Any] | None) -> WorkflowPolicy:
+    raw = raw or {}
+    return WorkflowPolicy(values=_policy_values(raw), paths=_paths(raw.get("paths")))
+
+
+def _board(raw: dict[str, Any] | None) -> BoardPolicy:
+    raw = raw or {}
+    workflows_raw = raw.get("workflows") or {}
+    if not isinstance(workflows_raw, dict):
+        raise ValueError("board workflows must be TOML tables")
+    workflows = {
+        str(name): _workflow(values if isinstance(values, dict) else {})
+        for name, values in workflows_raw.items()
+    }
+    return BoardPolicy(
+        values=_policy_values(raw),
+        paths=_paths(raw.get("paths")),
+        workflows=workflows,
+    )
 
 
 def _worker(name: str, raw: dict) -> WorkerConfig:
@@ -44,8 +133,8 @@ def _worker(name: str, raw: dict) -> WorkerConfig:
         raise ValueError(f"worker {name!r}: unsupported backend {backend!r}")
     if backend == "ssh-docker" and not str(raw.get("ssh", "")).strip():
         raise ValueError(f"worker {name!r}: ssh is required for ssh-docker")
-    if workspace not in {"none", "rsync"}:
-        raise ValueError(f"worker {name!r}: workspace must be 'none' or 'rsync'")
+    if workspace not in {"none", "rsync", "git"}:
+        raise ValueError(f"worker {name!r}: workspace must be 'none', 'rsync', or 'git'")
     if kind not in {"standalone", "shard_cluster"}:
         raise ValueError(f"worker {name!r}: kind must be standalone or shard_cluster")
     extra = raw.get("extra_docker_args", [])
@@ -86,8 +175,13 @@ def load_config(path: str | Path | None = None) -> LabConfig:
     if hb < 1:
         raise ValueError("runtime.heartbeat_seconds must be positive")
     ttl = runtime.get("claim_ttl_seconds")
+    boards_raw = data.get("boards") or {}
+    if not isinstance(boards_raw, dict):
+        raise ValueError("boards must be TOML tables")
     return LabConfig(
         workers=workers,
         heartbeat_seconds=hb,
         claim_ttl_seconds=int(ttl) if ttl is not None else None,
+        policy=_policy_values(data.get("policy") or {}),
+        boards={str(name): _board(raw if isinstance(raw, dict) else {}) for name, raw in boards_raw.items()},
     )
