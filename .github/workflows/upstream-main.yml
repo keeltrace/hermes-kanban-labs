@@ -1,0 +1,29 @@
+name: upstream-main-drift
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 9 * * *"
+
+jobs:
+  current-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Labs
+        uses: actions/checkout@v4
+      - name: Checkout current Hermes main
+        uses: actions/checkout@v4
+        with:
+          repository: NousResearch/hermes-agent
+          ref: main
+          path: _upstream
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Apply experimental seam
+        run: python scripts/apply_upstream_patch.py _upstream
+      - name: Verify current-main contract
+        run: python scripts/verify_upstream_contract.py _upstream
+      - name: Parse patched source
+        run: python -m py_compile _upstream/hermes_cli/kanban_db.py
+      - name: Record tested upstream SHA
+        run: git -C _upstream rev-parse HEAD

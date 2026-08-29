@@ -1,0 +1,31 @@
+[runtime]
+heartbeat_seconds = 60
+# claim_ttl_seconds = 1800
+
+# One normal machine = one logical Kanban worker.
+[workers.mac-mini-01]
+backend = "ssh-docker"
+ssh = "you@mac-mini-01.local"
+image = "nousresearch/hermes-agent:latest"
+provider = "openai-api"
+model = "your-local-model"
+base_url = "http://host.docker.internal:8080/v1"
+workspace = "rsync"
+# Optional file that ALREADY EXISTS ON THE REMOTE HOST. It is never copied
+# from the controller by Hermes Kanban Labs.
+# remote_env_file = "/Users/you/.config/hermes-worker.env"
+
+# Twenty inference machines can still appear to Hermes Kanban as ONE worker.
+# The Shard/MLX/etc. cluster is responsible for exposing one OpenAI-compatible
+# inference endpoint. Hermes Kanban Labs does not schedule the individual
+# model stages.
+[workers.monster-shard]
+kind = "shard_cluster"
+cluster_nodes = 20
+backend = "ssh-docker"
+ssh = "you@cluster-coordinator.local"
+image = "nousresearch/hermes-agent:latest"
+provider = "openai-api"
+model = "huge-distributed-model"
+base_url = "http://10.0.0.50:8000/v1"
+workspace = "rsync"

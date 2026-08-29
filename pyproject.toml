@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-kanban-labs"
+version = "0.1.0"
+description = "Experimental power-user Kanban worker backends for NousResearch/hermes-agent"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Hermes Kanban Labs contributors"}]
+dependencies = []
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+]
+
+[project.scripts]
+hermes-kanban-labs = "hermes_kanban_labs.cli:main"
+hkl = "hermes_kanban_labs.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["hermes_kanban_labs*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

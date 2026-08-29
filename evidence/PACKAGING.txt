@@ -1,0 +1,39 @@
+WARNING: The directory '/home/oai/.cache/pip' or its parent directory is not owned or is not writable by the current user. The cache has been disabled. Check the permissions and owner of that directory. If executing pip with sudo, you should use sudo's -H flag.
+Processing /mnt/data/hermes-kanban-labs
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: hermes-kanban-labs
+  Building wheel for hermes-kanban-labs (pyproject.toml): started
+  Building wheel for hermes-kanban-labs (pyproject.toml): finished with status 'done'
+  Created wheel for hermes-kanban-labs: filename=hermes_kanban_labs-0.1.0-py3-none-any.whl size=17824 sha256=d0542ad8b13cc38df14969abb1e3c22653b8f2b6a574bfce47bd4f3a1e38690b
+  Stored in directory: /tmp/pip-ephem-wheel-cache-898uwhxs/wheels/41/c6/2c/572f0fd41e27838f5809a086c5256c21e33c892ce52983b3c4
+Successfully built hermes-kanban-labs
+Installing collected packages: hermes-kanban-labs
+Successfully installed hermes-kanban-labs-0.1.0
+usage: hkl [-h] [--config CONFIG] {dispatch,doctor,patch-upstream} ...
+
+Experimental power-user execution backends for upstream Hermes Kanban
+
+positional arguments:
+  {dispatch,doctor,patch-upstream}
+    dispatch            Run the canonical Hermes dispatcher with Labs spawn
+                        backends
+    doctor              Verify configured worker hosts and Docker
+    patch-upstream      Apply/check the tiny external-spawn compatibility
+                        patch
+
+options:
+  -h, --help            show this help message and exit
+  --config CONFIG
+WARNING: The directory '/home/oai/.cache/pip' or its parent directory is not owned or is not writable by the current user. The cache has been disabled. Check the permissions and owner of that directory. If executing pip with sudo, you should use sudo's -H flag.
+Processing /mnt/data/hermes-kanban-labs
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: hermes-kanban-labs
+  Building wheel for hermes-kanban-labs (pyproject.toml): started
+  Building wheel for hermes-kanban-labs (pyproject.toml): finished with status 'done'
+  Created wheel for hermes-kanban-labs: filename=hermes_kanban_labs-0.1.0-py3-none-any.whl size=17824 sha256=46f2089c9dff35b9bc4423748ff041fae16c5f70cae786119ab040b074f49cc3
+  Stored in directory: /tmp/pip-ephem-wheel-cache-ma43metz/wheels/41/c6/2c/572f0fd41e27838f5809a086c5256c21e33c892ce52983b3c4
+Successfully built hermes-kanban-labs
+total 20K
+-rw-r--r-- 1 root oai_shared 18K Aug 29 16:25 hermes_kanban_labs-0.1.0-py3-none-any.whl
